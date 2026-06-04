@@ -1,0 +1,23 @@
+# Python caches / build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+build/
+dist/
+
+# Tests are not needed in the runtime image
+tests/
+
+# Local env / virtualenvs
+.venv/
+venv/
+.env
+.env.*
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
