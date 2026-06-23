@@ -11,7 +11,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  * Note: actual report file download (PDF/Word) is implemented separately in
  * task 13.2 — here a generated report is surfaced by title only.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import { Alert, Button, Card, Empty, Space, Typography } from 'antd';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { LoadingIndicator, PageContainer } from '../../components/Common';
@@ -25,7 +25,11 @@ import { ResultSection } from '../Analysis/components/ResultSection';
 const { Text } = Typography;
 export function HistoryPage() {
     const notify = useNotify();
+    const notifyRef = useRef(notify);
+    notifyRef.current = notify;
     const confirm = useConfirm();
+    const confirmRef = useRef(confirm);
+    confirmRef.current = confirm;
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
@@ -43,12 +47,12 @@ export function HistoryPage() {
             setSessions(response.sessions);
         }
         catch (err) {
-            notify.error('加载分析历史失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('加载分析历史失败', err instanceof Error ? err.message : undefined);
         }
         finally {
             setLoading(false);
         }
-    }, [notify]);
+    }, []); // notify via notifyRef
     useEffect(() => {
         void loadHistory();
     }, [loadHistory]);
@@ -69,16 +73,16 @@ export function HistoryPage() {
             setCharts(chartsData.charts);
         }
         catch (err) {
-            notify.error('加载分析详情失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('加载分析详情失败', err instanceof Error ? err.message : undefined);
             setSelected(null);
         }
         finally {
             setDetailLoading(false);
         }
-    }, [notify]);
+    }, []); // notify via notifyRef
     /** Delete an analysis record after confirmation (Req 6.4). */
     const handleDelete = useCallback(async (session) => {
-        const confirmed = await confirm({
+        const confirmed = await confirmRef.current({
             title: '删除分析记录',
             content: `确定要删除该分析记录（${session.id.slice(0, 8)}）吗？该操作将一并删除其分析结果、图表与报告，且不可恢复。`,
             danger: true,
@@ -89,7 +93,7 @@ export function HistoryPage() {
         setDeletingId(session.id);
         try {
             await analysisService.remove(session.id);
-            notify.success('分析记录已删除');
+            notifyRef.current.success('分析记录已删除');
             setSessions((prev) => prev.filter((s) => s.id !== session.id));
             if (selected?.id === session.id) {
                 setSelected(null);
@@ -99,12 +103,12 @@ export function HistoryPage() {
             }
         }
         catch (err) {
-            notify.error('删除失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('删除失败', err instanceof Error ? err.message : undefined);
         }
         finally {
             setDeletingId(null);
         }
-    }, [confirm, notify, selected]);
+    }, [selected]); // confirm+notify via refs
     const handleBack = useCallback(() => {
         setSelected(null);
         setResults([]);

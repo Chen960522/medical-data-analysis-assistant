@@ -180,10 +180,24 @@ class AgentCoreClient:
 
     # -- invocation ------------------------------------------------------
     def _get_runtime_invoker(self) -> RuntimeInvoker:
-        """Return the configured invoker, building a boto3-backed one lazily."""
+        """Return the configured invoker, building one lazily.
+
+        Uses local in-process mode when:
+        - ``APP_AGENT_LOCAL_MODE=true`` env var is set, OR
+        - ``APP_AGENTCORE_RUNTIME_ARN`` is empty
+        """
         if self._runtime_invoker is not None:
             return self._runtime_invoker
-        self._runtime_invoker = self._build_boto3_invoker()
+
+        import os
+        local_mode = (
+            os.environ.get("APP_AGENT_LOCAL_MODE", "").lower() in ("true", "1", "yes")
+            or not self._runtime_arn
+        )
+        if local_mode:
+            self._runtime_invoker = self._build_local_invoker()
+        else:
+            self._runtime_invoker = self._build_boto3_invoker()
         return self._runtime_invoker
 
     def _build_boto3_invoker(self) -> RuntimeInvoker:
@@ -219,6 +233,21 @@ class AgentCoreClient:
             if qualifier:
                 kwargs["qualifier"] = qualifier
             return client.invoke_agent_runtime(**kwargs)
+
+        return _invoke
+
+    def _build_local_invoker(self) -> RuntimeInvoker:
+        """Build a local invoker that runs the Strands Agent in-process.
+
+        Used when ``APP_AGENTCORE_RUNTIME_ARN`` is empty or
+        ``APP_AGENT_LOCAL_MODE=true`` is set.  MCP tools run as stdio
+        subprocesses inside the same ECS task, completely bypassing the
+        AgentCore Runtime service.
+        """
+        from ..agent.entrypoint import handle_invocation  # lazy import
+
+        def _invoke(payload: dict, session_id: str, user_id: str) -> dict:
+            return handle_invocation(payload)
 
         return _invoke
 

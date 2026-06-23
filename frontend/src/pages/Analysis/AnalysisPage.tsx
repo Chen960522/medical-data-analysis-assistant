@@ -11,7 +11,7 @@
  * and supporting removal of custom dimensions (Req 9.19-9.22).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Col, Empty, Row, Select, Space, Typography } from 'antd';
 import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 
@@ -80,7 +80,12 @@ function deriveSystemDimensions(results: AnalysisResult[]): Dimension[] {
 
 export function AnalysisPage() {
   const notify = useNotify();
+  // Stable ref so useCallback deps don't trigger infinite re-renders.
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
   const confirm = useConfirm();
+  const confirmRef = useRef(confirm);
+  confirmRef.current = confirm;
   const { isDesktop } = useResponsive();
 
   // File selection state.
@@ -121,12 +126,12 @@ export function AnalysisPage() {
           );
         }
       } catch (err) {
-        notify.error('无法加载数据文件列表', err instanceof Error ? err.message : undefined);
+        notifyRef.current.error('无法加载数据文件列表', err instanceof Error ? err.message : undefined);
       } finally {
         setFilesLoading(false);
       }
     },
-    [notify],
+    [],
   );
 
   useEffect(() => {
@@ -164,7 +169,7 @@ export function AnalysisPage() {
         }
       } catch (err) {
         if (!cancelled) {
-          notify.error('无法加载数据预览或质量报告', err instanceof Error ? err.message : undefined);
+          notifyRef.current.error('无法加载数据预览或质量报告', err instanceof Error ? err.message : undefined);
           setPreview(null);
           setQuality(null);
         }
@@ -177,7 +182,7 @@ export function AnalysisPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedFileId, resetAnalysis, notify]);
+  }, [selectedFileId, resetAnalysis]);
 
   const selectedFile = useMemo(
     () => files.find((f) => f.id === selectedFileId) ?? null,
@@ -248,15 +253,15 @@ export function AnalysisPage() {
     try {
       const response = await analysisService.start(selectedFileId);
       applyStartResponse(response);
-      notify.success('分析完成');
+      notifyRef.current.success('分析完成');
     } catch (err) {
       const message =
         err instanceof ApiError || err instanceof Error ? err.message : '请稍后重试。';
-      notify.error('分析失败', message);
+      notifyRef.current.error('分析失败', message);
     } finally {
       setAnalyzing(false);
     }
-  }, [selectedFileId, applyStartResponse, notify]);
+  }, [selectedFileId, applyStartResponse]);
 
   /** Remove a user-requested dimension (Req 9.20, 9.21). */
   const handleRemoveDimension = useCallback(
@@ -264,7 +269,7 @@ export function AnalysisPage() {
       if (!analysisId) {
         return;
       }
-      const confirmed = await confirm({
+      const confirmed = await confirmRef.current({
         title: '移除分析维度',
         content: `确定要移除「${dimension.name}」维度吗？该维度的分析结果将从仪表盘中移除。`,
         danger: true,
@@ -284,14 +289,14 @@ export function AnalysisPage() {
         setResults(resultsData.results);
         setReport(resultsData.report ?? null);
         setCharts(chartsData.charts);
-        notify.success('已移除分析维度');
+        notifyRef.current.success('已移除分析维度');
       } catch (err) {
-        notify.error('移除维度失败', err instanceof Error ? err.message : undefined);
+        notifyRef.current.error('移除维度失败', err instanceof Error ? err.message : undefined);
       } finally {
         setRemovingDimId(null);
       }
     },
-    [analysisId, confirm, notify],
+    [analysisId], // confirm excluded via confirmRef
   );
 
   // Group results by type for sectioned display (Req 3.1-3.5).
@@ -328,7 +333,7 @@ export function AnalysisPage() {
           <Card title="上传新文件" variant="outlined">
             <FileUpload
               onUploaded={(file) => {
-                notify.info('文件已上传，正在刷新列表…');
+                notifyRef.current.info('文件已上传，正在刷新列表…');
                 void loadFiles(file.id);
               }}
             />

@@ -11,7 +11,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  * analysis dimensions, distinguishing system-generated from user-requested ones
  * and supporting removal of custom dimensions (Req 9.19-9.22).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Col, Empty, Row, Select, Space, Typography } from 'antd';
 import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { LoadingIndicator, PageContainer } from '../../components/Common';
@@ -65,7 +65,11 @@ function deriveSystemDimensions(results) {
 }
 export function AnalysisPage() {
     const notify = useNotify();
+    const notifyRef = useRef(notify);
+    notifyRef.current = notify;
     const confirm = useConfirm();
+    const confirmRef = useRef(confirm);
+    confirmRef.current = confirm;
     const { isDesktop } = useResponsive();
     // File selection state.
     const [files, setFiles] = useState([]);
@@ -101,12 +105,12 @@ export function AnalysisPage() {
             }
         }
         catch (err) {
-            notify.error('无法加载数据文件列表', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('无法加载数据文件列表', err instanceof Error ? err.message : undefined);
         }
         finally {
             setFilesLoading(false);
         }
-    }, [notify]);
+    }, []); // notify excluded via notifyRef
     useEffect(() => {
         void loadFiles();
     }, [loadFiles]);
@@ -141,7 +145,7 @@ export function AnalysisPage() {
             }
             catch (err) {
                 if (!cancelled) {
-                    notify.error('无法加载数据预览或质量报告', err instanceof Error ? err.message : undefined);
+                    notifyRef.current.error('无法加载数据预览或质量报告', err instanceof Error ? err.message : undefined);
                     setPreview(null);
                     setQuality(null);
                 }
@@ -155,7 +159,7 @@ export function AnalysisPage() {
         return () => {
             cancelled = true;
         };
-    }, [selectedFileId, resetAnalysis, notify]);
+    }, [selectedFileId, resetAnalysis]); // notify excluded via notifyRef
     const selectedFile = useMemo(() => files.find((f) => f.id === selectedFileId) ?? null, [files, selectedFileId]);
     /** Apply a start/dimension response into local analysis state. */
     const applyStartResponse = useCallback((response) => {
@@ -206,22 +210,22 @@ export function AnalysisPage() {
         try {
             const response = await analysisService.start(selectedFileId);
             applyStartResponse(response);
-            notify.success('分析完成');
+            notifyRef.current.success('分析完成');
         }
         catch (err) {
             const message = err instanceof ApiError || err instanceof Error ? err.message : '请稍后重试。';
-            notify.error('分析失败', message);
+            notifyRef.current.error('分析失败', message);
         }
         finally {
             setAnalyzing(false);
         }
-    }, [selectedFileId, applyStartResponse, notify]);
+    }, [selectedFileId, applyStartResponse]); // notify excluded via notifyRef
     /** Remove a user-requested dimension (Req 9.20, 9.21). */
     const handleRemoveDimension = useCallback(async (dimension) => {
         if (!analysisId) {
             return;
         }
-        const confirmed = await confirm({
+        const confirmed = await confirmRef.current({
             title: '移除分析维度',
             content: `确定要移除「${dimension.name}」维度吗？该维度的分析结果将从仪表盘中移除。`,
             danger: true,
@@ -241,15 +245,15 @@ export function AnalysisPage() {
             setResults(resultsData.results);
             setReport(resultsData.report ?? null);
             setCharts(chartsData.charts);
-            notify.success('已移除分析维度');
+            notifyRef.current.success('已移除分析维度');
         }
         catch (err) {
-            notify.error('移除维度失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('移除维度失败', err instanceof Error ? err.message : undefined);
         }
         finally {
             setRemovingDimId(null);
         }
-    }, [analysisId, confirm, notify]);
+    }, [analysisId]); // confirm excluded via confirmRef // notify excluded via notifyRef
     // Group results by type for sectioned display (Req 3.1-3.5).
     const hasResults = results.length > 0;
     // The analysis workspace content (left column).
@@ -257,7 +261,7 @@ export function AnalysisPage() {
                                     value: file.id,
                                     label: fileOptionLabel(file),
                                 })), showSearch: true, optionFilterProp: "label" })) : (_jsx(Empty, { description: "\u6682\u65E0\u6570\u636E\u6587\u4EF6\uFF0C\u8BF7\u5148\u4E0A\u4F20\u4E00\u4E2A\u6587\u4EF6" })) }) }), _jsx(Col, { xs: 24, lg: 10, children: _jsx(Card, { title: "\u4E0A\u4F20\u65B0\u6587\u4EF6", variant: "outlined", children: _jsx(FileUpload, { onUploaded: (file) => {
-                                    notify.info('文件已上传，正在刷新列表…');
+                                    notifyRef.current.info('文件已上传，正在刷新列表…');
                                     void loadFiles(file.id);
                                 } }) }) })] }), selectedFile ? (_jsxs(_Fragment, { children: [_jsx(Card, { title: "\u6570\u636E\u9884\u89C8\uFF08\u524D 10 \u884C\uFF09", variant: "outlined", children: fileDetailLoading ? (_jsx(LoadingIndicator, { tip: "\u6B63\u5728\u52A0\u8F7D\u6570\u636E\u9884\u89C8\u2026", size: "default" })) : preview ? (_jsx(DataPreviewTable, { preview: preview })) : (_jsx(Empty, { description: "\u65E0\u6CD5\u52A0\u8F7D\u6570\u636E\u9884\u89C8" })) }), _jsx(Card, { title: "\u6570\u636E\u8D28\u91CF\u6458\u8981", variant: "outlined", children: fileDetailLoading ? (_jsx(LoadingIndicator, { tip: "\u6B63\u5728\u52A0\u8F7D\u6570\u636E\u8D28\u91CF\u62A5\u544A\u2026", size: "default" })) : quality ? (_jsx(DataQualitySummary, { quality: quality })) : (_jsx(Empty, { description: "\u65E0\u6CD5\u52A0\u8F7D\u6570\u636E\u8D28\u91CF\u62A5\u544A" })) }), _jsx(Card, { title: "AI \u591A\u7EF4\u5EA6\u5206\u6790", variant: "outlined", children: _jsxs(Space, { direction: "vertical", size: SPACING.md, style: { width: '100%' }, children: [_jsxs(Space, { wrap: true, children: [_jsx(Button, { type: "primary", icon: _jsx(PlayCircleOutlined, {}), loading: analyzing, disabled: !selectedFileId || fileDetailLoading, onClick: () => void handleStartAnalysis(), children: hasResults ? '重新分析' : '开始分析' }), hasResults ? (_jsx(Text, { type: "secondary", children: "\u5206\u6790\u5DF2\u5B8C\u6210\uFF0C\u53EF\u5728\u4E0B\u65B9\u67E5\u770B\u7ED3\u679C\u4E0E\u56FE\u8868\u3002" })) : null] }), analyzing ? _jsx(AnalysisProgress, {}) : null] }) }), hasResults ? (_jsx(Card, { title: "\u5206\u6790\u7EF4\u5EA6", variant: "outlined", children: _jsx(DimensionList, { dimensions: dimensions, onRemove: (dimension) => void handleRemoveDimension(dimension), removingId: removingDimId }) })) : null, hasResults ? (_jsx(Card, { title: "\u5206\u6790\u7ED3\u679C", variant: "outlined", children: results.map((result) => (_jsx(ResultSection, { result: result }, result.id))) })) : null, hasResults ? (_jsx(Card, { title: "\u53EF\u89C6\u5316\u56FE\u8868", variant: "outlined", children: _jsx(ChartGrid, { charts: charts }) })) : null, hasResults && analysisId ? (_jsx(Card, { title: "\u5206\u6790\u62A5\u544A", variant: "outlined", children: _jsxs(Space, { direction: "vertical", size: SPACING.md, style: { width: '100%' }, children: [report ? (_jsx(Text, { type: "secondary", children: `当前报告：${report.title}` })) : (_jsx(Text, { type: "secondary", children: "\u70B9\u51FB\u300C\u751F\u6210\u62A5\u544A\u300D\u4EE5\u751F\u6210\u7ED3\u6784\u5316\u5206\u6790\u62A5\u544A\uFF0C\u5E76\u53EF\u4E0B\u8F7D\u4E3A PDF \u6216 Word \u683C\u5F0F\u3002" })), _jsx(ReportDownloadControl, { analysisId: analysisId, report: report, onReportGenerated: setReport })] }) })) : null] })) : null] }));
     // Persistent chat panel (right column on desktop, stacked on tablet) (Req 9.1, 9.4).

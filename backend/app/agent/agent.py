@@ -117,8 +117,8 @@ def get_mcp_server_specs() -> list[MCPServerSpec]:
         # === open-source MCP servers ===
         MCPServerSpec(
             name="pubmed",
-            command=settings.mcp_pubmed_command,
-            args=_split_args(settings.mcp_pubmed_args),
+            command="pubmed_mcp_server",
+            args=[],
         ),
         MCPServerSpec(
             name="markitdown",
@@ -174,7 +174,7 @@ def build_mcp_clients() -> list:
         RuntimeError: If the ``strands`` / ``mcp`` packages are not installed.
     """
     try:
-        from mcp import StdioServerParameters  # lazy import
+        from mcp.client.stdio import StdioServerParameters, stdio_client  # lazy import
         from strands.tools.mcp import MCPClient  # lazy import
     except Exception as exc:  # pragma: no cover - depends on optional dep
         raise RuntimeError(
@@ -184,11 +184,11 @@ def build_mcp_clients() -> list:
 
     clients = []
     for spec in get_mcp_server_specs():
-        # Bind the spec values as defaults to avoid late-binding in the closure.
+        # transport_callable must return an async context manager (stdio_client),
+        # NOT a StdioServerParameters object directly.
         def _factory(command=spec.command, args=spec.args, env=spec.env):
-            if env:
-                return StdioServerParameters(command=command, args=args, env=env)
-            return StdioServerParameters(command=command, args=args)
+            params = StdioServerParameters(command=command, args=args, env=env or None)
+            return stdio_client(params)
 
         clients.append(MCPClient(_factory))
 

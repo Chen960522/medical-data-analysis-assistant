@@ -8,7 +8,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
  * searching within collections by title/keyword (Req 10.42), removing items
  * (Req 10.41) and deleting collections (with confirmation).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import { Button, Card, Collapse, Empty, Input, List, Segmented, Space, Tag, Typography, } from 'antd';
 import { DeleteOutlined, FolderOutlined, PlusOutlined, ReloadOutlined, } from '@ant-design/icons';
 import { LoadingIndicator } from '../../../components/Common';
@@ -23,7 +23,11 @@ function itemSourceColor(source) {
 }
 export function CollectionsView({ reloadToken = 0 }) {
     const notify = useNotify();
+    const notifyRef = useRef(notify);
+    notifyRef.current = notify;
     const confirm = useConfirm();
+    const confirmRef = useRef(confirm);
+    confirmRef.current = confirm;
     const [collections, setCollections] = useState([]);
     const [loading, setLoading] = useState(true);
     const [sourceFilter, setSourceFilter] = useState('all');
@@ -41,12 +45,12 @@ export function CollectionsView({ reloadToken = 0 }) {
             setCollections(response.collections);
         }
         catch (err) {
-            notify.error('无法加载文献收藏', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('无法加载文献收藏', err instanceof Error ? err.message : undefined);
         }
         finally {
             setLoading(false);
         }
-    }, [sourceFilter, search, notify]);
+    }, [sourceFilter, search]); // notify via notifyRef
     useEffect(() => {
         void loadCollections();
     }, [loadCollections, reloadToken]);
@@ -59,12 +63,12 @@ export function CollectionsView({ reloadToken = 0 }) {
         setCreating(true);
         try {
             await literatureService.createCollection({ name });
-            notify.success('收藏夹已创建');
+            notifyRef.current.success('收藏夹已创建');
             setNewCollectionName('');
             await loadCollections();
         }
         catch (err) {
-            notify.error('创建收藏夹失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('创建收藏夹失败', err instanceof Error ? err.message : undefined);
         }
         finally {
             setCreating(false);
@@ -72,7 +76,7 @@ export function CollectionsView({ reloadToken = 0 }) {
     }, [newCollectionName, notify, loadCollections]);
     /** Delete a collection after confirmation (Req 10.41). */
     const handleDeleteCollection = useCallback(async (collection) => {
-        const confirmed = await confirm({
+        const confirmed = await confirmRef.current({
             title: '删除收藏夹',
             content: `确定要删除「${collection.name}」吗？其中的所有文件夹和收藏文献都将被移除。`,
             danger: true,
@@ -82,16 +86,16 @@ export function CollectionsView({ reloadToken = 0 }) {
         }
         try {
             await literatureService.deleteCollection(collection.id);
-            notify.success('收藏夹已删除');
+            notifyRef.current.success('收藏夹已删除');
             await loadCollections();
         }
         catch (err) {
-            notify.error('删除收藏夹失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('删除收藏夹失败', err instanceof Error ? err.message : undefined);
         }
-    }, [confirm, notify, loadCollections]);
+    }, [loadCollections]); // confirm+notify via refs
     /** Remove a saved item from its collection (Req 10.41). */
     const handleRemoveItem = useCallback(async (collection, item) => {
-        const confirmed = await confirm({
+        const confirmed = await confirmRef.current({
             title: '移除收藏',
             content: `确定要从「${collection.name}」中移除该文献吗？`,
             danger: true,
@@ -101,13 +105,13 @@ export function CollectionsView({ reloadToken = 0 }) {
         }
         try {
             await literatureService.removeItem(collection.id, item.id);
-            notify.success('已移除收藏');
+            notifyRef.current.success('已移除收藏');
             await loadCollections();
         }
         catch (err) {
-            notify.error('移除失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('移除失败', err instanceof Error ? err.message : undefined);
         }
-    }, [confirm, notify, loadCollections]);
+    }, [loadCollections]); // confirm+notify via refs
     const totalItems = useMemo(() => collections.reduce((sum, collection) => sum + collection.items.length, 0), [collections]);
     /** Render the saved-item list, grouped by folder then unfiled. */
     const renderItems = (collection) => {

@@ -74,8 +74,9 @@ compute_stack.add_dependency(storage_stack)
 cdn_stack = CdnStack(
     app,
     "MedicalAnalysis-Cdn",
+    alb=compute_stack.alb,
     env=env,
 )
-# Dependency on storage_stack is implicit via frontend_bucket cross-stack reference
+cdn_stack.add_dependency(compute_stack)
 
 app.synth()

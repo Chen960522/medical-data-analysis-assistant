@@ -47,6 +47,9 @@ export interface ChatPanelProps {
 
 export function ChatPanel({ analysisSessionId, onArtifacts, height = '100%' }: ChatPanelProps) {
   const notify = useNotify();
+  // Stable ref so createSession's useCallback doesn't re-fire on every render.
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(true);
@@ -78,11 +81,11 @@ export function ChatPanel({ analysisSessionId, onArtifacts, height = '100%' }: C
     } catch (err) {
       setSessionId(null);
       const message = err instanceof ApiError || err instanceof Error ? err.message : undefined;
-      notify.error('无法创建对话会话', message);
+      notifyRef.current.error('无法创建对话会话', message);
     } finally {
       setInitializing(false);
     }
-  }, [analysisSessionId, notify]);
+  }, [analysisSessionId]); // notify intentionally excluded via notifyRef to prevent infinite loop
 
   // Lazily create a session on mount and whenever the linked analysis changes.
   useEffect(() => {

@@ -19,7 +19,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
  * A link to the dedicated translation-history management page is provided
  * (Req 11.44).
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Button, Card, Descriptions, Space, Typography } from 'antd';
 import { FileSyncOutlined, TranslationOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
@@ -37,6 +37,8 @@ import { DownloadControl } from './components/DownloadControl';
 const { Text } = Typography;
 export function TranslationPage() {
     const notify = useNotify();
+    const notifyRef = useRef(notify);
+    notifyRef.current = notify;
     const [record, setRecord] = useState(null);
     const [sourceChoice, setSourceChoice] = useState('auto');
     const [translating, setTranslating] = useState(false);
@@ -77,20 +79,20 @@ export function TranslationPage() {
             const translated = await translationService.translate(record.id, body);
             setResult(translated);
             setProgressPercent(100);
-            notify.success('翻译完成');
+            notifyRef.current.success('翻译完成');
         }
         catch (err) {
             const message = err instanceof ApiError || err instanceof Error
                 ? err.message
                 : '翻译失败，请稍后重试。';
             setError(message);
-            notify.error('翻译失败', message);
+            notifyRef.current.error('翻译失败', message);
         }
         finally {
             window.clearInterval(poll);
             setTranslating(false);
         }
-    }, [record, sourceChoice, notify]);
+    }, [record, sourceChoice]); // notify via notifyRef
     const detectedSource = result?.source_language ?? null;
     const detectedTarget = result?.target_language ?? null;
     return (_jsx(PageContainer, { title: "PDF \u7FFB\u8BD1", description: "\u4E0A\u4F20 PDF \u533B\u5B66\u6587\u732E\u5E76\u8FDB\u884C\u4E2D\u82F1\u6587\u5168\u6587\u7FFB\u8BD1\uFF0C\u652F\u6301\u53CC\u8BED\u5BF9\u6BD4\u67E5\u770B\u4E0E\u7ED3\u679C\u4E0B\u8F7D\u3002", extra: _jsx(Link, { to: "/translation-history", children: _jsx(Button, { icon: _jsx(FileSyncOutlined, {}), children: "\u7FFB\u8BD1\u5386\u53F2" }) }), children: _jsxs(Space, { direction: "vertical", size: SPACING.lg, style: { width: '100%' }, children: [_jsx(Card, { title: "\u4E0A\u4F20 PDF \u6587\u732E", variant: "outlined", children: _jsx(PdfUpload, { onUploaded: handleUploaded }) }), record ? (_jsx(Card, { title: "\u6587\u4EF6\u4FE1\u606F", variant: "outlined", children: _jsxs(Space, { direction: "vertical", size: SPACING.md, style: { width: '100%' }, children: [_jsx(Descriptions, { column: { xs: 1, sm: 2, md: 3 }, size: "small", items: [

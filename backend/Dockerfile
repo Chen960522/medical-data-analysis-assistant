@@ -9,22 +9,32 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# curl is required by the ECS container health check (GET /health).
+# curl: ECS health check. System libs: WeasyPrint (report-generation MCP).
+# Node.js + npm: postgres-mcp-server launched via npx.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends \
+        curl nodejs npm \
+        libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
+        libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install dependencies first for better layer caching. pyproject.toml uses the
-# hatchling backend with packages = ["app"], so the app package must be present
-# for the build install.
-COPY pyproject.toml ./
-COPY app ./app
-COPY alembic ./alembic
-COPY alembic.ini ./alembic.ini
+# Self-developed MCP servers (stdio subprocesses launched by the Agent).
+COPY mcp-servers/report-generation/report_generation ./mcp_servers/report_generation
+COPY mcp-servers/cnki-search/cnki_search ./mcp_servers/cnki_search
+COPY mcp-servers/chart-generation ./mcp_servers/chart_generation
+RUN touch ./mcp_servers/__init__.py
 
-RUN pip install --upgrade pip && pip install .
+COPY backend/pyproject.toml ./
+COPY backend/app ./app
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini ./alembic.ini
+
+RUN pip install --upgrade pip && pip install . && \
+    pip install --upgrade "strands-agents>=1.44.0" "mcp>=1.12.0" && \
+    pip install "pubmed-mcp-server>=0.1.0" \
+    || echo "WARNING: pubmed-mcp-server install failed (non-critical)"
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 appuser

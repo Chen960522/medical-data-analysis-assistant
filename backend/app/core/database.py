@@ -15,7 +15,14 @@ _SessionLocal = None
 def _get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(settings.database_url, pool_pre_ping=True)
+        _engine = create_engine(
+            settings.database_url,
+            pool_pre_ping=True,      # test connection before use
+            pool_size=10,            # max persistent connections per worker
+            max_overflow=20,         # extra connections under burst
+            pool_recycle=1800,       # recycle connections every 30 min (< RDS 8h idle timeout)
+            pool_timeout=30,         # raise after 30s if no connection available
+        )
     return _engine
 
 

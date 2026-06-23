@@ -17,16 +17,16 @@ import type {
 
 export const authService = {
   register: (data: RegisterRequest) =>
-    apiClient.post<AuthResponse>('/auth/register', data, { skipAuth: true }),
+    apiClient.post<AuthResponse>('/auth/register', data, { skipAuth: true, handleUnauthorized: false }),
 
   login: (data: LoginRequest) =>
-    apiClient.post<LoginResponse>('/auth/login', data, { skipAuth: true }),
+    apiClient.post<LoginResponse>('/auth/login', data, { skipAuth: true, handleUnauthorized: false }),
 
   logout: () => apiClient.post<AuthResponse>('/auth/logout'),
 
   requestPasswordReset: (data: PasswordResetRequest) =>
-    apiClient.post<AuthResponse>('/auth/password/reset-request', data, { skipAuth: true }),
+    apiClient.post<AuthResponse>('/auth/password/reset-request', data, { skipAuth: true, handleUnauthorized: false }),
 
   resetPassword: (data: PasswordReset) =>
-    apiClient.post<AuthResponse>('/auth/password/reset', data, { skipAuth: true }),
+    apiClient.post<AuthResponse>('/auth/password/reset', data, { skipAuth: true, handleUnauthorized: false }),
 };

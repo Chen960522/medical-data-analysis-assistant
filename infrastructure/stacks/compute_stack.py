@@ -34,7 +34,6 @@ from constructs import Construct
 # Repository root relative to this file: infrastructure/stacks/ -> repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _BACKEND_DIR = str(_REPO_ROOT / "backend")
-_MCP_DIR = str(_REPO_ROOT / "mcp-servers")
 
 
 class ComputeStack(Stack):
@@ -69,6 +68,14 @@ class ComputeStack(Stack):
         redis_port = redis_cluster.attr_primary_end_point_port
         redis_url = f"rediss://{redis_endpoint}:{redis_port}/0"
 
+        # CloudFront domain for CORS (set via CDK context: -c cloudfront_domain=xxx.cloudfront.net)
+        cloudfront_domain = self.node.try_get_context("cloudfront_domain") or ""
+        cors_origins = "http://localhost:3000"
+        if cloudfront_domain:
+            cors_origins = f"http://localhost:3000,https://{cloudfront_domain}"
+        # Always include the fixed custom domain
+        cors_origins += ",https://medical.wjmapp.com"
+
         # Plain environment for the API container. Secrets (DB user/password,
         # JWT key) are injected separately via ``secrets`` below so they never
         # appear as plaintext in the task definition.
@@ -90,6 +97,8 @@ class ComputeStack(Stack):
             "APP_BEDROCK_REGION": bedrock_region,
             "APP_AGENTCORE_REGION": agentcore_region,
             "APP_AGENTCORE_RUNTIME_ARN": agentcore_runtime_arn,
+            # CORS
+            "APP_CORS_ORIGINS": cors_origins,
         }
 
         # Secrets injected from Secrets Manager (ECS execution role is granted
@@ -119,7 +128,8 @@ class ComputeStack(Stack):
             ),
         )
 
-        # HTTP listener - redirect to HTTPS
+        # HTTP listener - forward to API (CloudFront → ALB uses HTTPS with SNI)
+        # Keep HTTP listener with redirect for direct browser access
         self.alb.add_listener(
             "HttpListener",
             port=80,
@@ -178,7 +188,17 @@ class ComputeStack(Stack):
 
         api_task_definition.add_container(
             "ApiContainer",
-            image=ecs.ContainerImage.from_asset(_BACKEND_DIR),
+            image=ecs.ContainerImage.from_asset(
+                str(_REPO_ROOT),
+                file="backend/Dockerfile",
+                exclude=[
+                    "frontend/node_modules",
+                    "infrastructure/.venv",
+                    "infrastructure/cdk.out",
+                    "**/__pycache__",
+                    "**/.git",
+                ],
+            ),
             port_mappings=[
                 ecs.PortMapping(container_port=8000, protocol=ecs.Protocol.TCP)
             ],
@@ -240,74 +260,13 @@ class ComputeStack(Stack):
             "ApiTargetRule",
             priority=10,
             conditions=[
-                elbv2.ListenerCondition.path_patterns(["/api/*"]),
+                elbv2.ListenerCondition.path_patterns(["/api/*", "/health"]),
             ],
             target_groups=[api_target_group],
         )
 
-        # --- MCP Servers Service ---
-
-        mcp_task_definition = ecs.FargateTaskDefinition(
-            self,
-            "McpTaskDef",
-            cpu=1024,
-            memory_limit_mib=2048,
-        )
-
-        mcp_task_definition.add_container(
-            "McpContainer",
-            image=ecs.ContainerImage.from_asset(_MCP_DIR),
-            port_mappings=[
-                ecs.PortMapping(container_port=9000, protocol=ecs.Protocol.TCP)
-            ],
-            logging=ecs.LogDrivers.aws_logs(
-                stream_prefix="mcp-servers",
-                log_retention=logs.RetentionDays.ONE_MONTH,
-            ),
-            environment={
-                "ENV": "production",
-                "PORT": "9000",
-                "APP_S3_BUCKET_NAME": data_bucket.bucket_name,
-                "APP_AWS_REGION": self.region,
-                "APP_BEDROCK_REGION": bedrock_region,
-            },
-            secrets={
-                "APP_DB_USER": ecs.Secret.from_secrets_manager(db_instance.secret, "username"),
-                "APP_DB_PASSWORD": ecs.Secret.from_secrets_manager(db_instance.secret, "password"),
-            },
-        )
-
-        self.mcp_service = ecs.FargateService(
-            self,
-            "McpService",
-            cluster=self.cluster,
-            task_definition=mcp_task_definition,
-            desired_count=2,
-            vpc_subnets=ec2.SubnetSelection(
-                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-            ),
-            assign_public_ip=False,
-        )
-
-        # Auto-scaling for MCP Servers
-        mcp_scaling = self.mcp_service.auto_scale_task_count(
-            min_capacity=2,
-            max_capacity=6,
-        )
-        mcp_scaling.scale_on_cpu_utilization(
-            "McpCpuScaling",
-            target_utilization_percent=70,
-            scale_in_cooldown=Duration.seconds(60),
-            scale_out_cooldown=Duration.seconds(60),
-        )
-
         # --- IAM grants for the task roles ---------------------------------
-        # Both the API and MCP services need S3 (data/reports), KMS (to use the
-        # encrypted buckets), and Bedrock (model invocation + AgentCore).
-        task_roles = [
-            api_task_definition.task_role,
-            mcp_task_definition.task_role,
-        ]
+        task_roles = [api_task_definition.task_role]
 
         for role in task_roles:
             # S3 object access on the data and reports buckets.

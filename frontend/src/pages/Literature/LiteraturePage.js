@@ -40,6 +40,8 @@ const EMPTY_RESPONSE = {
 };
 export function LiteraturePage() {
     const notify = useNotify();
+    const notifyRef = useRef(notify);
+    notifyRef.current = notify;
     const [activeTab, setActiveTab] = useState('search');
     // Search state. The latest criteria drives pagination/sort re-fetches.
     const [criteria, setCriteria] = useState(null);
@@ -99,13 +101,13 @@ export function LiteraturePage() {
             if (err instanceof DOMException && err.name === 'AbortError') {
                 return;
             }
-            notify.error('文献检索失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('文献检索失败', err instanceof Error ? err.message : undefined);
             setResponse(EMPTY_RESPONSE);
         }
         finally {
             setLoading(false);
         }
-    }, [notify]);
+    }, []); // notify via notifyRef
     /** Submit a new search from the form (resets to page 1). */
     const handleSearch = useCallback((next) => {
         setCriteria(next);

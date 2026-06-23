@@ -26,6 +26,8 @@ import { ChatComposer } from './ChatComposer';
 const { Text } = Typography;
 export function ChatPanel({ analysisSessionId, onArtifacts, height = '100%' }) {
     const notify = useNotify();
+    const notifyRef = useRef(notify);
+    notifyRef.current = notify;
     const [sessionId, setSessionId] = useState(null);
     const [initializing, setInitializing] = useState(true);
     const [messages, setMessages] = useState([]);
@@ -50,12 +52,12 @@ export function ChatPanel({ analysisSessionId, onArtifacts, height = '100%' }) {
         catch (err) {
             setSessionId(null);
             const message = err instanceof ApiError || err instanceof Error ? err.message : undefined;
-            notify.error('无法创建对话会话', message);
+            notifyRef.current.error('无法创建对话会话', message);
         }
         finally {
             setInitializing(false);
         }
-    }, [analysisSessionId, notify]);
+    }, [analysisSessionId]); // notify excluded via notifyRef to prevent infinite loop
     // Lazily create a session on mount and whenever the linked analysis changes.
     useEffect(() => {
         void createSession();
@@ -102,17 +104,17 @@ export function ChatPanel({ analysisSessionId, onArtifacts, height = '100%' }) {
                 // Turn limit reached on the server (Req 9.17, 9.18).
                 setLimitReached(true);
                 setTurnCount(MAX_CONVERSATION_TURNS);
-                notify.warning(err.message);
+                notifyRef.current.warning(err.message);
             }
             else {
                 const message = err instanceof ApiError || err instanceof Error ? err.message : undefined;
-                notify.error('消息发送失败', message);
+                notifyRef.current.error('消息发送失败', message);
             }
         }
         finally {
             setSending(false);
         }
-    }, [sessionId, sending, limitReached, onArtifacts, notify]);
+    }, [sessionId, sending, limitReached, onArtifacts]); // notify via notifyRef
     const turnIndicator = (_jsxs(Tag, { color: limitReached ? 'error' : 'blue', children: ["\u8F6E\u6B21\uFF1A", turnCount, " / ", MAX_CONVERSATION_TURNS] }));
     return (_jsx(Card, { title: _jsxs(Space, { children: [_jsx(MessageOutlined, {}), _jsx("span", { children: "\u5BF9\u8BDD\u5F0F\u5206\u6790" })] }), extra: turnIndicator, variant: "outlined", style: { height, display: 'flex', flexDirection: 'column' }, styles: {
             body: {

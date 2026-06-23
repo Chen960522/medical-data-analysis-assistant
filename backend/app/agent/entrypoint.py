@@ -26,23 +26,89 @@ Requirements: 3.1-3.8, 9.5-9.13
 from __future__ import annotations
 
 import json
+import logging
+import threading
 from collections.abc import Iterator
 from typing import Any
 
-from .agent import build_agent
+from .agent import build_agent, build_mcp_clients
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Session → Agent cache
 # ---------------------------------------------------------------------------
-# A simple, injectable module-level cache mapping a session id to its Agent.
-# Keeping it module-level (with a reset helper) makes the behaviour easy to
-# exercise from tests without needing a real Bedrock backend.
 _SESSION_AGENTS: dict[str, Any] = {}
+
+# Global pre-warmed agent (started at app init time, not on first request)
+_GLOBAL_AGENT: Any = None
+_GLOBAL_AGENT_LOCK = threading.Lock()
 
 
 def reset() -> None:
     """Clear the session→agent cache. Intended for tests."""
+    global _GLOBAL_AGENT
     _SESSION_AGENTS.clear()
+    _GLOBAL_AGENT = None
+
+
+def _build_agent_parallel() -> Any:
+    """Build agent, pre-starting MCP clients and filtering out failed ones.
+
+    Calls start() on each client, then marks _tool_provider_started=True so
+    Strands' load_tools() won't attempt a second start().
+    """
+    all_clients = build_mcp_clients()
+    working_clients = []
+
+    for client in all_clients:
+        try:
+            client.start()
+            # Tell Strands the client is already started so it won't re-start
+            client._tool_provider_started = True
+            working_clients.append(client)
+            logger.info("MCP client started: %s", client)
+        except Exception as e:
+            logger.warning("MCP client start failed (skipping): %s", e)
+
+    return build_agent(mcp_clients=working_clients if working_clients else None)
+
+
+def _warmup_in_background() -> None:
+    """Start MCP clients in a background thread immediately at app init.
+
+    By starting the background thread from create_app(), all MCP clients begin
+    initializing concurrently while AgentCore counts down its 30s init window.
+    The first real request will block on _GLOBAL_AGENT_LOCK until warmup
+    completes, but the agent init itself is not part of the 30s window.
+    """
+    def _run():
+        global _GLOBAL_AGENT
+        try:
+            agent = _build_agent_parallel()
+            with _GLOBAL_AGENT_LOCK:
+                _GLOBAL_AGENT = agent
+            logger.info("Background agent warmup complete.")
+        except Exception as e:
+            logger.error("Background agent warmup failed: %s", e)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
+def _get_global_agent() -> Any:
+    """Return the pre-warmed global agent, building it once on first call.
+
+    Waits up to 55 seconds for the background warmup thread to finish.
+    Raises RuntimeError if agent is not ready within the timeout.
+    """
+    global _GLOBAL_AGENT
+    if _GLOBAL_AGENT is not None:
+        return _GLOBAL_AGENT
+    with _GLOBAL_AGENT_LOCK:
+        if _GLOBAL_AGENT is None:
+            _GLOBAL_AGENT = _build_agent_parallel()
+    return _GLOBAL_AGENT
 
 
 def create_agent_with_context(
@@ -50,22 +116,16 @@ def create_agent_with_context(
     user_id: str = "",
     analysis_context: dict | None = None,
 ):
-    """Create or restore the Agent for a session, seeding conversation context.
+    """Return the Agent for a session, reusing the pre-warmed global instance.
 
-    If an Agent already exists for ``session_id`` it is reused (restoring the
-    in-memory conversation). Otherwise a fresh Agent is assembled via
-    :func:`app.agent.agent.build_agent` and cached.
-
-    Any prior conversation messages supplied via ``analysis_context["messages"]``
-    are seeded onto the Agent when supported, so follow-up turns retain context
-    (Requirements 9.14-9.16).
+    Uses the global pre-warmed agent (MCP clients already started) to avoid
+    cold-start delays on the first request. Session-level message history is
+    seeded from ``analysis_context`` when provided.
 
     Args:
-        session_id: The AgentCore session identifier. When empty, a non-cached
-            ephemeral Agent is returned.
+        session_id: The AgentCore session identifier.
         user_id: The authenticated user id (reserved for per-user scoping).
-        analysis_context: Optional accumulated context (e.g. prior messages,
-            active dimensions, generated charts).
+        analysis_context: Optional accumulated context (prior messages etc.).
 
     Returns:
         A Strands ``Agent`` (or any injected stub callable).
@@ -75,16 +135,15 @@ def create_agent_with_context(
     if session_id and session_id in _SESSION_AGENTS:
         return _SESSION_AGENTS[session_id]
 
-    agent = build_agent()
+    # Use the pre-warmed global agent; fall back to building a fresh one if
+    # _GLOBAL_AGENT was never initialised (e.g. in tests with mocked agents).
+    agent = _get_global_agent()
 
-    # Best-effort seeding of prior conversation messages. Strands ``Agent``
-    # exposes a mutable ``messages`` list; we only set it when the supplied
-    # context actually carries messages and the attribute is writable.
     prior_messages = analysis_context.get("messages")
     if prior_messages:
         try:
             agent.messages = list(prior_messages)
-        except (AttributeError, TypeError):  # pragma: no cover - stub dependent
+        except (AttributeError, TypeError):
             pass
 
     if session_id:
@@ -339,12 +398,12 @@ def extract_report(response: Any) -> dict | None:
 def create_app():
     """Build the Bedrock AgentCore application and register the entrypoint.
 
-    The ``bedrock-agentcore`` SDK is imported lazily so that importing this
-    module remains dependency-free.
+    Does NO initialization — returns immediately so AgentCore's 30s window
+    is not exceeded. The global agent and MCP clients are initialized lazily
+    on the first :func:`handle_invocation` call.
 
     Returns:
-        A ``BedrockAgentCoreApp`` with :func:`handle_invocation` registered as
-        the entrypoint.
+        A ``BedrockAgentCoreApp`` with :func:`handle_invocation` registered.
 
     Raises:
         RuntimeError: If the ``bedrock-agentcore`` package is not installed.

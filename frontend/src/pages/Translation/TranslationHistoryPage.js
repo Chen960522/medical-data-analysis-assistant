@@ -9,7 +9,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
  * deleting a record prompts a confirmation dialog before permanently removing
  * it (Req 11.46).
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useEffect, useState } from 'react';
 import { Button, Card, Space, Typography } from 'antd';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { PageContainer } from '../../components/Common';
@@ -23,7 +23,11 @@ import { DownloadControl } from './components/DownloadControl';
 const { Text } = Typography;
 export function TranslationHistoryPage() {
     const notify = useNotify();
+    const notifyRef = useRef(notify);
+    notifyRef.current = notify;
     const confirm = useConfirm();
+    const confirmRef = useRef(confirm);
+    confirmRef.current = confirm;
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
@@ -38,12 +42,12 @@ export function TranslationHistoryPage() {
             setRecords(response.records);
         }
         catch (err) {
-            notify.error('加载翻译历史失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('加载翻译历史失败', err instanceof Error ? err.message : undefined);
         }
         finally {
             setLoading(false);
         }
-    }, [notify]);
+    }, []); // notify via notifyRef
     useEffect(() => {
         void loadHistory();
     }, [loadHistory]);
@@ -57,16 +61,16 @@ export function TranslationHistoryPage() {
             setResult(loaded);
         }
         catch (err) {
-            notify.error('加载翻译结果失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('加载翻译结果失败', err instanceof Error ? err.message : undefined);
             setSelected(null);
         }
         finally {
             setResultLoading(false);
         }
-    }, [notify]);
+    }, []); // notify via notifyRef
     /** Delete a translation record after confirmation (Req 11.46). */
     const handleDelete = useCallback(async (item) => {
-        const confirmed = await confirm({
+        const confirmed = await confirmRef.current({
             title: '删除翻译记录',
             content: `确定要删除「${item.original_filename}」的翻译记录吗？该操作不可恢复。`,
             danger: true,
@@ -77,7 +81,7 @@ export function TranslationHistoryPage() {
         setDeletingId(item.id);
         try {
             await translationService.deleteRecord(item.id);
-            notify.success('翻译记录已删除');
+            notifyRef.current.success('翻译记录已删除');
             setRecords((prev) => prev.filter((r) => r.id !== item.id));
             if (selected?.id === item.id) {
                 setSelected(null);
@@ -85,12 +89,12 @@ export function TranslationHistoryPage() {
             }
         }
         catch (err) {
-            notify.error('删除失败', err instanceof Error ? err.message : undefined);
+            notifyRef.current.error('删除失败', err instanceof Error ? err.message : undefined);
         }
         finally {
             setDeletingId(null);
         }
-    }, [confirm, notify, selected]);
+    }, [selected]); // confirm+notify via refs
     const handleBack = useCallback(() => {
         setSelected(null);
         setResult(null);
